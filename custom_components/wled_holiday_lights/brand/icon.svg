@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <path d="M18 78 Q256 238 494 78" fill="none" stroke="#546e7a" stroke-width="20" stroke-linecap="round"/>
+  <g stroke="#546e7a" stroke-width="16" stroke-linecap="round">
+    <path d="M72 110v62"/>
+    <path d="M194 154v104"/>
+    <path d="M318 154v42"/>
+    <path d="M440 110v148"/>
+  </g>
+  <g fill="#546e7a">
+    <rect x="48" y="160" width="48" height="32" rx="8"/>
+    <rect x="170" y="246" width="48" height="32" rx="8"/>
+    <rect x="294" y="184" width="48" height="32" rx="8"/>
+    <rect x="416" y="246" width="48" height="32" rx="8"/>
+  </g>
+  <path d="M48 184h48l16 58c10 40-10 70-40 70s-50-30-40-70z" fill="#ef5350"/>
+  <path d="M170 270h48l16 58c10 40-10 70-40 70s-50-30-40-70z" fill="#ffca28"/>
+  <path d="M294 208h48l16 58c10 40-10 70-40 70s-50-30-40-70z" fill="#26a69a"/>
+  <path d="M416 270h48l16 58c10 40-10 70-40 70s-50-30-40-70z" fill="#42a5f5"/>
+  <g fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" opacity=".6">
+    <path d="M54 220l-7 27q-4 18 3 27"/>
+    <path d="M176 306l-7 27q-4 18 3 27"/>
+    <path d="M300 244l-7 27q-4 18 3 27"/>
+    <path d="M422 306l-7 27q-4 18 3 27"/>
+  </g>
+</svg>

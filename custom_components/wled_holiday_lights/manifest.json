@@ -1,0 +1,14 @@
+{
+  "domain": "wled_holiday_lights",
+  "name": "WLED Holiday Lights",
+  "after_dependencies": ["calendar", "sun"],
+  "codeowners": ["@drock3"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/drock3/wled-holiday-lights",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/drock3/wled-holiday-lights/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

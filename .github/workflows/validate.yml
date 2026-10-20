@@ -1,0 +1,191 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate HACS repository
+        uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main
+        with:
+          category: integration
+          comment: false
+
+  hassfest:
+    name: Home Assistant hassfest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate integration
+        uses: home-assistant/actions/hassfest@cd6f3635a740c84d8a14f6121a90068b8ece6bf6 # master
+
+  quality:
+    name: Code and workflow quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install lint tools
+        run: python -m pip install -r requirements-dev.txt
+      - name: Lint Python
+        run: python -m ruff check .
+      - name: Check Python formatting
+        run: python -m ruff format --check .
+      - name: Validate workflows
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+        with:
+          version: "1.7.12"
+
+  python:
+    name: Python syntax and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Compile integration
+        run: python -m compileall -q custom_components
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  compatibility-matrix:
+    name: Resolve Home Assistant versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.versions.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Resolve minimum and latest stable runtimes
+        id: versions
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import re
+          from urllib.request import urlopen
+
+          minimum = json.loads(Path("hacs.json").read_text())["homeassistant"]
+          targets = []
+          for name, version, plugin in (
+              ("minimum", minimum, "==0.13.305"),
+              ("latest", None, ">=0.13.305"),
+          ):
+              url = "https://pypi.org/pypi/homeassistant/"
+              url += f"{version}/json" if version else "json"
+              with urlopen(url, timeout=30) as response:
+                  info = json.load(response)["info"]
+              if not re.fullmatch(r"\d+\.\d+\.\d+", info["version"]):
+                  raise ValueError(f"Expected a stable Home Assistant version: {info['version']}")
+              python = re.search(r">=(\d+\.\d+)", info["requires_python"])
+              if python is None:
+                  raise ValueError(f"Cannot resolve Python requirement: {info['requires_python']}")
+              targets.append({
+                  "name": name,
+                  "homeassistant": info["version"],
+                  "python": python[1],
+                  "plugin": plugin,
+              })
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("matrix=" + json.dumps({"include": targets}) + "\n")
+
+  compatibility:
+    name: Home Assistant (${{ matrix.name }})
+    needs: compatibility-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compatibility-matrix.outputs.matrix) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up compatible Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install Home Assistant test dependencies
+        env:
+          HA_VERSION: ${{ matrix.homeassistant }}
+          TEST_PLUGIN: ${{ matrix.plugin }}
+        run: >-
+          python -m pip install -r requirements-test.txt
+          "homeassistant==$HA_VERSION"
+          "pytest-homeassistant-custom-component$TEST_PLUGIN"
+      - name: Run real Home Assistant tests
+        run: python -m pytest tests/ha -v
+
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [hacs, hassfest, quality, python, compatibility]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Verify release tag
+        shell: python
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          manifest = Path("custom_components/wled_holiday_lights/manifest.json")
+          version = json.loads(manifest.read_text())["version"]
+          if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
+              raise ValueError(f"Expected a stable semantic version, got {version!r}")
+          if os.environ["RELEASE_TAG"] != f"v{version}":
+              raise ValueError(f"Release tag must be v{version}")
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" --verify-tag --generate-notes --title "$RELEASE_TAG"
