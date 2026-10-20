@@ -1,6 +1,7 @@
 """Fresh-release configuration, persistence, and lifecycle regression tests."""
 
-from datetime import datetime, time, timezone
+import asyncio
+from datetime import datetime, time, timedelta, timezone
 import json
 from types import SimpleNamespace
 import unittest
@@ -260,6 +261,241 @@ class ConfigurationTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual({"data": {"power": None, "sources": [], "windows": [EVENING]}}, result)
+
+
+class ManualOverrideTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.context = integration()
+        self.modules = self.context.__enter__()
+        self.addCleanup(self.context.__exit__, None, None, None)
+        self.now = datetime(2026, 10, 20, 18, tzinfo=timezone.utc)
+        clock = patch.object(self.modules.controller.dt_util, "now", return_value=self.now)
+        clock.start()
+        self.addCleanup(clock.stop)
+        entry = SimpleNamespace(
+            entry_id="setup",
+            title="Lights",
+            data={"light": "light.wled", "preset": "select.wled"},
+            options={
+                "sources": [
+                    {
+                        "id": "packers",
+                        "name": "Packers",
+                        "type": "template",
+                        "template": "{{ 'Packers' }}",
+                    },
+                    {
+                        "id": "calendar",
+                        "name": "Holidays",
+                        "type": "calendar",
+                        "entity": "calendar.holidays",
+                    },
+                ]
+            },
+            async_create_background_task=lambda _hass, work, _name: asyncio.create_task(work),
+        )
+        self.controller = self.modules.controller.LightingController(MagicMock(), entry)
+        ctl = self.controller
+        ctl._save = MagicMock()
+        ctl._updated = MagicMock()
+        ctl._update_hours = MagicMock()
+        ctl.hours = True
+        ctl.device = MagicMock(
+            power=None,
+            transitioning=False,
+            preset_options=["[Packers] Green and gold", "[Halloween] Orange"],
+            async_power_for_manual=AsyncMock(),
+            async_power_on=AsyncMock(),
+            async_power_off=AsyncMock(),
+            async_apply=AsyncMock(),
+        )
+        self.template, self.calendar = ctl.sources
+        self.template.template.async_render.return_value = "Packers"
+        self.calendar.async_refresh = AsyncMock(return_value=True)
+        self.calendar.async_evaluate = AsyncMock(
+            return_value=self.calendar._result([{"theme": "Halloween"}])
+        )
+        self.calendar.next_change = MagicMock(return_value=self.now + timedelta(hours=1))
+
+    async def test_restored_manual_mode_populates_schedule_inside_and_outside_hours(self):
+        ctl = self.controller
+        ctl.mode = "Manual"
+        ctl.manual_date = self.now.date().isoformat()
+        ctl.output = {"status": "manual", "detail": "Manual override"}
+
+        for hours in (True, False):
+            with self.subTest(hours=hours):
+                ctl.hours = hours
+                await ctl._ha_started(ctl.hass)
+                if ctl._task:
+                    await ctl._task
+
+                self.assertIsNotNone(ctl.plan)
+                self.assertEqual("Packers", ctl.plan["theme"])
+                self.assertEqual("[Packers] Green and gold", ctl.plan["look"])
+                self.assertEqual("Packers", ctl.plan["source"])
+                self.assertEqual("Packers: Packers", ctl.plan["reason"])
+                self.assertEqual(self.now.isoformat(), ctl.plan["evaluated"])
+                self.assertEqual(2, len(ctl.plan["requests"]))
+                self.assertEqual(
+                    ["Packers", "Halloween"], [source["theme"] for source in ctl.plan["sources"]]
+                )
+                self.assertEqual([], ctl.plan["errors"])
+                self.assertEqual([], ctl.plan["warnings"])
+                self.assertTrue(ctl.plan["enabled"])
+                self.assertEqual(hours, ctl.plan["allowed"])
+                self.assertFalse(ctl.plan_is_current(ctl.plan))
+                self.assertIsNotNone(ctl._boundary_unsub)
+                self.assertEqual("manual", ctl.output["status"])
+
+        ctl.device.async_power_for_manual.assert_not_awaited()
+        ctl.device.async_power_on.assert_not_awaited()
+        ctl.device.async_power_off.assert_not_awaited()
+        ctl.device.async_apply.assert_not_awaited()
+
+    async def test_entering_manual_powers_outlet_once_and_keeps_sources_current(self):
+        ctl = self.controller
+        ctl._started = True
+        ctl.set_mode("Manual")
+        await ctl._task
+
+        self.assertIsNotNone(ctl.plan)
+        self.assertEqual("Packers", ctl.plan["theme"])
+        ctl.device.async_power_for_manual.assert_awaited_once()
+
+        self.template.template.async_render.return_value = ""
+        ctl._source_changed("Packers")
+        await ctl._task
+
+        self.assertEqual("Halloween", ctl.plan["theme"])
+        self.assertEqual("No active requests", ctl.plan["sources"][0]["reason"])
+        ctl._calendar_refresh(self.now)
+        await ctl._task
+        self.calendar.async_refresh.assert_awaited_once()
+        self.template.template.async_render.return_value = "Packers"
+        ctl._source_boundary(self.now)
+        await ctl._task
+        self.assertEqual("Packers", ctl.plan["theme"])
+        ctl.set_source_enabled("packers", False)
+        await ctl._task
+        self.assertEqual("Halloween", ctl.plan["theme"])
+        ctl.device.async_power_for_manual.assert_awaited_once()
+        ctl.device.async_power_on.assert_not_awaited()
+        ctl.device.async_power_off.assert_not_awaited()
+        ctl.device.async_apply.assert_not_awaited()
+
+    async def test_manual_mode_does_not_power_on_to_discover_presets(self):
+        ctl = self.controller
+        ctl.mode = "Manual"
+        ctl._started = True
+        ctl.device.preset_options = None
+        ctl.request_reconcile("start", force=True)
+        if ctl._task:
+            await ctl._task
+
+        self.assertIsNotNone(ctl.plan)
+        self.assertEqual("Waiting for WLED presets", ctl.plan["reason"])
+        self.assertFalse(ctl._force_pending)
+        ctl.device.async_power_on.assert_not_awaited()
+        ctl.device.async_power_off.assert_not_awaited()
+        ctl.device.async_apply.assert_not_awaited()
+
+    async def test_manual_mode_uses_cached_presets_when_wled_is_offline(self):
+        ctl = self.controller
+        ctl.mode = "Manual"
+        ctl.presets = ["[Packers] Cached look"]
+        ctl.device.preset_options = None
+        await ctl._reconcile()
+
+        self.assertEqual("Packers", ctl.plan["theme"])
+        self.assertEqual("[Packers] Cached look", ctl.plan["look"])
+        self.assertEqual(["Packers"], ctl.themes)
+        ctl.device.async_power_on.assert_not_awaited()
+        ctl.device.async_power_off.assert_not_awaited()
+        ctl.device.async_apply.assert_not_awaited()
+
+    async def test_source_change_during_manual_entry_preserves_outlet_startup(self):
+        ctl = self.controller
+        ctl._started = True
+        powering = asyncio.Event()
+        finish = asyncio.Event()
+
+        async def power_for_manual():
+            powering.set()
+            await finish.wait()
+
+        ctl.device.async_power_for_manual.side_effect = power_for_manual
+        ctl.set_mode("Manual")
+        await powering.wait()
+        ctl._source_changed("Packers")
+        finish.set()
+        await ctl._task
+
+        self.assertEqual(2, ctl.device.async_power_for_manual.await_count)
+        self.assertFalse(ctl._manual_power_pending)
+        self.assertEqual("Packers", ctl.plan["theme"])
+        ctl.device.async_power_off.assert_not_awaited()
+        ctl.device.async_apply.assert_not_awaited()
+
+    async def test_unavailable_sources_retry_in_manual_without_touching_output(self):
+        ctl = self.controller
+        ctl.mode = "Manual"
+        ctl._started = True
+        self.calendar.async_evaluate.return_value = self.calendar._result(
+            available=False, warnings=["Calendar unavailable"]
+        )
+        await ctl._reconcile()
+
+        self.assertEqual(["Holidays: Calendar unavailable"], ctl.plan["warnings"])
+        self.assertIsNotNone(ctl._retry_unsub)
+        ctl._retry(self.now)
+        await ctl._task
+        ctl.device.async_power_for_manual.assert_not_awaited()
+        ctl.device.async_power_off.assert_not_awaited()
+        ctl.device.async_apply.assert_not_awaited()
+
+    async def test_automatic_and_disabled_still_control_hardware(self):
+        ctl = self.controller
+        ctl._started = True
+        for mode, hours, power_off in (
+            ("Automatic", True, False),
+            ("Automatic", False, True),
+            ("Disabled", True, True),
+        ):
+            with self.subTest(mode=mode, hours=hours):
+                ctl.mode = mode
+                ctl.hours = hours
+                ctl.device.async_power_off.reset_mock()
+                ctl.device.async_apply.reset_mock()
+                await ctl._reconcile()
+
+                self.assertEqual(mode == "Automatic", ctl.plan["enabled"])
+                self.assertEqual(power_off, ctl.device.async_power_off.await_count == 1)
+                ctl.device.async_apply.assert_awaited_once_with(ctl.plan, force=False)
+
+    async def test_leaving_manual_resumes_hardware_control(self):
+        ctl = self.controller
+        ctl.mode = "Manual"
+        ctl._started = True
+        ctl.set_mode("Automatic")
+        await ctl._task
+
+        self.assertEqual("Packers", ctl.plan["theme"])
+        self.assertTrue(ctl.plan_is_current(ctl.plan))
+        ctl.device.async_apply.assert_awaited_once_with(ctl.plan, force=False)
+
+    async def test_midnight_ends_manual_override_and_applies_schedule(self):
+        ctl = self.controller
+        ctl.mode = "Manual"
+        ctl.manual_date = (self.now - timedelta(days=1)).date().isoformat()
+        ctl._started = True
+        ctl._midnight(self.now)
+        await ctl._task
+
+        self.assertEqual("Automatic", ctl.mode)
+        self.assertEqual("", ctl.manual_date)
+        self.assertEqual("Packers", ctl.plan["theme"])
+        ctl.device.async_apply.assert_awaited_once_with(ctl.plan, force=False)
 
 
 class PersistenceTests(unittest.IsolatedAsyncioTestCase):
