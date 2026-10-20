@@ -1,0 +1,148 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "WLED Holiday Lights",
+        "description": "Name this lighting setup and choose its WLED strip. Name WLED presets `[Theme] Look name`. The lights may run from sunset to midnight at first. After setup, choose **Configure** on this setup to change the lighting windows and add sources (calendars, conditions or templates) that request themes.",
+        "data": {
+          "name": "Name",
+          "light": "WLED light",
+          "preset": "WLED preset selector",
+          "power": "Outlet switch"
+        },
+        "data_description": {
+          "name": "Used for the device and its entity IDs.",
+          "light": "The native WLED light entity.",
+          "preset": "The native WLED preset select entity; its options are the look library.",
+          "power": "Optional outlet that powers the WLED controller. With an outlet, off means the outlet is switched off."
+        }
+      }
+    },
+    "error": {
+      "name_required": "Enter a name."
+    },
+    "abort": {
+      "already_configured": "Another lighting setup already uses this WLED light or preset selector."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "WLED Holiday Lights",
+        "description": "The lights may run while any lighting window is open. Sources are checked from the top, and the first one with a usable theme wins. Drag to reorder, use the pencil to edit, or **Add** a new window or source. Each source also gets an on/off switch on the device.",
+        "data": {
+          "light": "WLED light",
+          "preset": "WLED preset selector",
+          "power": "Outlet switch",
+          "windows": "Lighting windows",
+          "sources": "Sources"
+        },
+        "data_description": {
+          "power": "Optional. Clear it if WLED isn't behind a switched outlet.",
+          "windows": "Each window opens and closes at a clock time, or at sunrise or sunset plus an offset. Windows stay within one day; an end time of 00:00 is midnight. Overlapping windows combine. A window stays closed on days its end isn't after its start, or when the sun doesn't rise or set.",
+          "sources": "**Calendar**: event titles are themes; the shortest event wins. **Condition**: requests the theme while the entity is on. **Template**: requests whatever the template renders."
+        }
+      }
+    },
+    "error": {
+      "output_in_use": "Another lighting setup already uses this WLED light or preset selector.",
+      "source_name_required": "Every source needs a name.",
+      "source_name_in_use": "More than one source is named {source}.",
+      "source_calendar_required": "{source}: choose a calendar entity.",
+      "source_condition_required": "{source}: choose an entity and enter a theme.",
+      "source_template_required": "{source}: enter a template.",
+      "source_template_invalid": "{source}: the template has a syntax error.",
+      "window_required": "Add at least one lighting window. For lights at any time of day, use a window from 00:00 to 00:00.",
+      "window_point_required": "{window}: choose Time, Sunrise or Sunset for both the start and the end.",
+      "window_time_required": "{window}: enter a time for each end set to Time.",
+      "window_offset_invalid": "{window}: offsets must be whole minutes from -240 to 240.",
+      "window_backwards": "{window}: the end time must be after the start time. Use two windows to run past midnight."
+    }
+  },
+  "issues": {
+    "configuration": {
+      "title": "{name} setup problem",
+      "description": "The lights are being kept off until these are fixed:\n\n{errors}\n\nThis clears automatically at the next schedule check once resolved."
+    },
+    "output": {
+      "title": "{name} WLED problem",
+      "description": "{message}\n\nThis clears automatically once WLED is next checked."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "output": {
+        "state": {
+          "applied": "Preset applied",
+          "off": "Off",
+          "manual": "Manual control",
+          "error": "Error"
+        }
+      }
+    }
+  },
+  "services": {
+    "reconcile": {
+      "name": "Re-check schedule",
+      "description": "Re-evaluate the schedule and correct anything WLED has drifted from. Target a lighting setup when there is more than one. Not available in Manual mode."
+    }
+  },
+  "selector": {
+    "source": {
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Shown in the schedule status and used for the source's on/off switch."
+        },
+        "type": {
+          "name": "Type",
+          "description": "Calendar, Condition or Template. Fill in only the fields below that this type uses."
+        },
+        "entity": {
+          "name": "Entity",
+          "description": "Calendar: the calendar. Condition: an entity that is on or off (binary sensor, input boolean, switch, schedule...)."
+        },
+        "theme": {
+          "name": "Theme",
+          "description": "Condition only: the theme requested while the entity is on."
+        },
+        "template": {
+          "name": "Template",
+          "description": "Template only: renders a theme name, or nothing. Empty, `none`, `false`, `unknown` and `unavailable` request nothing."
+        }
+      }
+    },
+    "window": {
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Shown in the In lighting hours attributes. Defaults to Window and its position."
+        },
+        "start": {
+          "name": "Start",
+          "description": "When the window opens: a clock time, or sunrise or sunset."
+        },
+        "start_time": {
+          "name": "Start time",
+          "description": "Time only: the clock time the window opens."
+        },
+        "start_offset": {
+          "name": "Start offset",
+          "description": "Sunrise or Sunset only: minutes after the sun event; negative is before."
+        },
+        "end": {
+          "name": "End",
+          "description": "When the window closes: a clock time, or sunrise or sunset."
+        },
+        "end_time": {
+          "name": "End time",
+          "description": "Time only: the clock time the window closes. 00:00 is midnight at the end of the day."
+        },
+        "end_offset": {
+          "name": "End offset",
+          "description": "Sunrise or Sunset only: minutes after the sun event; negative is before."
+        }
+      }
+    }
+  }
+}
