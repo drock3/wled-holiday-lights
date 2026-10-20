@@ -105,9 +105,9 @@ jobs:
 
           minimum = json.loads(Path("hacs.json").read_text())["homeassistant"]
           targets = []
-          for name, version, plugin in (
-              ("minimum", minimum, "==0.13.305"),
-              ("latest", None, ">=0.13.305"),
+          for name, version in (
+              ("minimum", minimum),
+              ("latest", None),
           ):
               url = "https://pypi.org/pypi/homeassistant/"
               url += f"{version}/json" if version else "json"
@@ -122,7 +122,6 @@ jobs:
                   "name": name,
                   "homeassistant": info["version"],
                   "python": python[1],
-                  "plugin": plugin,
               })
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write("matrix=" + json.dumps({"include": targets}) + "\n")
@@ -144,14 +143,21 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python }}
-      - name: Install Home Assistant test dependencies
+      - name: Install minimum Home Assistant test dependencies
+        if: matrix.name == 'minimum'
         env:
           HA_VERSION: ${{ matrix.homeassistant }}
-          TEST_PLUGIN: ${{ matrix.plugin }}
+        run: >-
+          python -m pip install
+          "homeassistant==$HA_VERSION"
+          "pytest-homeassistant-custom-component==0.13.305"
+      - name: Install latest Home Assistant test dependencies
+        if: matrix.name == 'latest'
+        env:
+          HA_VERSION: ${{ matrix.homeassistant }}
         run: >-
           python -m pip install -r requirements-test.txt
           "homeassistant==$HA_VERSION"
-          "pytest-homeassistant-custom-component$TEST_PLUGIN"
       - name: Run real Home Assistant tests
         run: python -m pytest tests/ha -v
 
