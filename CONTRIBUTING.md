@@ -28,14 +28,16 @@ Install their dependencies in a separate Linux environment with a Python version
 supported by the target Home Assistant release:
 
 ```shell
-python -m pip install -r requirements-test.txt "homeassistant==2026.1.0" "pytest-homeassistant-custom-component==0.13.305"
+python -m pip install "homeassistant==2026.1.0" "pytest-homeassistant-custom-component==0.13.305"
 python -m pytest tests/ha -v
 ```
 
-For the latest stable target, replace the Home Assistant version with the current
-stable release and omit the test-plugin constraint. CI resolves the stable version
-automatically and constrains Home Assistant so a newer test plugin cannot
-inadvertently select a beta.
+For the latest stable target, install `-r requirements-test.txt` alongside the
+current stable Home Assistant version instead of the historical test-plugin pin.
+Do not combine that requirements file with the minimum target's plugin pin:
+dependency updates can raise its lower bound above the historical version.
+CI resolves the stable version automatically and constrains Home Assistant so a
+newer test plugin cannot inadvertently select a beta.
 
 Run `actionlint` locally if installed; CI also validates workflows. Automated tests
 do not replace a smoke test in a running Home Assistant instance with real WLED
@@ -53,7 +55,9 @@ pushes to `main`, version tags (`v*`), weekly, and on demand. It checks:
   [hacs.json](hacs.json) and the latest stable release from PyPI, using the Python
   runtime required by each release. The minimum target uses the matching
   historical test plugin; the latest target resolves a compatible plugin
-  automatically.
+  automatically from [requirements-test.txt](requirements-test.txt). The minimum
+  target does not install that file, keeping its historical plugin independent of
+  development dependency updates.
 
 When raising the minimum supported version, update [hacs.json](hacs.json), the
 README requirements, and the minimum target's matching test-plugin pin in the
