@@ -171,7 +171,9 @@ class LightingDevice:
     async def async_power_for_manual(self) -> None:
         """Manual mode: switch the outlet on so WLED can be edited; nothing else."""
         if self.power is None:
-            self.controller.set_output("manual", "Manual mode: automation paused until midnight.")
+            self.controller.set_output(
+                "manual", "Manual mode: automatic output paused until midnight."
+            )
             return
         async with self._transition():
             if self.state(self.power) != STATE_ON:
@@ -180,7 +182,7 @@ class LightingDevice:
                 lambda: self.state(self.power) == STATE_ON, [self.power], CONFIRM_TIMEOUT
             ):
                 self.controller.set_output(
-                    "manual", "Manual mode: WLED outlet on; automation paused until midnight."
+                    "manual", "Manual mode: WLED outlet on; automatic output paused until midnight."
                 )
             else:
                 self.controller.output_error("WLED outlet did not turn on for manual mode.")
