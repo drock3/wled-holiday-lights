@@ -105,6 +105,7 @@ class LightingController:
         self._retry_unsub: Callable[[], None] | None = None
         # Survives interruption, so a forced re-apply isn't lost to a concurrent event.
         self._force_pending = False
+        self._manual_power_pending = False
 
     # ----- persistence and entity updates -------------------------------------------------
 
@@ -239,7 +240,7 @@ class LightingController:
 
     @callback
     def _schedule_retry(self) -> None:
-        if self._started and self.mode != MODE_MANUAL and self._retry_unsub is None:
+        if self._started and self._retry_unsub is None:
             self._retry_unsub = async_track_point_in_time(
                 self.hass, self._retry, dt_util.now() + RETRY_INTERVAL
             )
@@ -379,19 +380,14 @@ class LightingController:
         if mode == self.mode:
             return
         self.mode = mode
+        self._manual_power_pending = mode == MODE_MANUAL
         self.manual_date = dt_util.now().date().isoformat() if mode == MODE_MANUAL else ""
         self._save()
         self._updated()
         if mode == MODE_MANUAL:
             self._cancel_retry()
             self._force_pending = False
-            self._start_task(self._enter_manual(), "manual mode")
-        else:
-            self.request_reconcile(f"mode {mode}")
-
-    async def _enter_manual(self) -> None:
-        """Power the outlet so WLED is reachable, then send nothing further."""
-        await self.device.async_power_for_manual()
+        self.request_reconcile(f"mode {mode}")
 
     @callback
     def set_source_enabled(self, source_id: str, enabled: bool) -> None:
@@ -429,8 +425,7 @@ class LightingController:
 
         ``force`` resends every hardware command instead of only correcting drift.
         """
-        # Manual mode: hands off the hardware entirely.
-        if not self._started or self.mode == MODE_MANUAL:
+        if not self._started:
             return
         running = self._task is not None and not self._task.done()
         # Startup/shutdown cause device changes of their own; don't restart their waits.
@@ -440,7 +435,7 @@ class LightingController:
             return
         if not calendar_only:
             self._cancel_retry()
-        if force:
+        if force and self.mode != MODE_MANUAL:
             self._force_pending = True
         _LOGGER.debug("Reconcile requested: %s", reason)
         self._start_task(self._reconcile(calendar_only=calendar_only), f"reconcile ({reason})")
@@ -479,6 +474,9 @@ class LightingController:
 
     async def _reconcile(self, *, calendar_only: bool = False) -> None:
         dev = self.device
+        if self.mode == MODE_MANUAL and self._manual_power_pending:
+            await dev.async_power_for_manual()
+            self._manual_power_pending = False
         now = dt_util.now()
         if calendar_only:
             calendars = [
@@ -492,10 +490,11 @@ class LightingController:
             self._cancel_retry()
         self._update_hours(trigger=False)
 
-        enabled = self.mode == MODE_AUTOMATIC
+        manual = self.mode == MODE_MANUAL
+        enabled = self.mode != MODE_DISABLED
 
         # Discover presets once after a fresh install; afterwards the cache avoids idle boots.
-        if enabled and self.hours and not self.presets and not dev.preset_options:
+        if not manual and enabled and self.hours and not self.presets and not dev.preset_options:
             await dev.async_power_on()
         self._refresh_preset_cache()
 
@@ -505,7 +504,7 @@ class LightingController:
         self._updated()
 
         # Enforce the gate before any potentially slow calendar query.
-        if not enabled or not self.hours:
+        if not manual and (not enabled or not self.hours):
             await dev.async_power_off(
                 "Automation disabled" if not enabled else "Outside lighting hours"
             )
@@ -555,7 +554,8 @@ class LightingController:
         else:
             ir.async_delete_issue(self.hass, DOMAIN, self.issue_configuration)
 
-        await dev.async_apply(plan, force=self._force_pending)
+        if not manual:
+            await dev.async_apply(plan, force=self._force_pending)
         self._force_pending = False
         if not power_ok or any(r["enabled"] and not r["available"] for r in results):
             self._schedule_retry()

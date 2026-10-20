@@ -187,13 +187,19 @@ parties, or any other occasion with a matching preset.
 | Control | Behavior |
 | --- | --- |
 | Mode: Automatic | Applies the winning theme during lighting hours; otherwise keeps the lights off. |
-| Mode: Manual | Leaves WLED alone for direct control or editing; returns to Automatic at local midnight. |
+| Mode: Manual | Overrides automatic output for direct control or editing while keeping the schedule and diagnostics current; returns to Automatic at local midnight. |
 | Mode: Disabled | Keeps the lights off until you change the mode. |
 | Brightness | Target brightness, from 1 to 100 percent. |
 | Reapply to WLED | Re-evaluates and resends power, preset, and brightness commands; unavailable in Manual mode. |
 
 In Automatic mode, direct changes to WLED can be corrected at the next schedule
 check. Switch to Manual before editing presets or controlling WLED yourself.
+Entering Manual powers on the configured outlet so WLED is reachable, but does not
+change the WLED light, preset, or brightness. Schedule evaluation continues,
+including source changes and calendar refreshes, so the scheduled theme, preset,
+winning source, and diagnostics show what Automatic mode would select. Lighting
+hours still apply to that plan; **Ready to light** stays off while Manual is selected.
+If WLED is offline, planning uses the last known preset list without powering it on.
 
 For automations, the `wled_holiday_lights.reconcile` action re-checks the schedule and
 corrects drift. Select the setup's device or entity as a target when more than one
