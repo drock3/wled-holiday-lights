@@ -163,35 +163,96 @@ jobs:
 
   release:
     name: Publish release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [hacs, hassfest, quality, python, compatibility]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: publish-release
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - name: Verify release tag
+      - name: Prepare release
+        id: release
         shell: python
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           import json
           import os
           from pathlib import Path
           import re
+          import subprocess
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
 
           manifest = Path("custom_components/wled_holiday_lights/manifest.json")
           version = json.loads(manifest.read_text())["version"]
-          if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
+          pattern = r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+          if not re.fullmatch(pattern, version):
               raise ValueError(f"Expected a stable semantic version, got {version!r}")
-          if os.environ["RELEASE_TAG"] != f"v{version}":
+          tag = f"v{version}"
+          ref = os.environ["GITHUB_REF"]
+          if ref.startswith("refs/tags/") and ref != f"refs/tags/{tag}":
               raise ValueError(f"Release tag must be v{version}")
+
+          def get_release(path):
+              url = (
+                  f"{os.environ['GITHUB_API_URL']}/repos/"
+                  f"{os.environ['GITHUB_REPOSITORY']}/releases/{path}"
+              )
+              request = Request(url, headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              })
+              try:
+                  with urlopen(request, timeout=30) as response:
+                      return json.load(response)
+              except HTTPError as error:
+                  if error.code != 404:
+                      raise
+                  return None
+
+          existing = get_release(f"tags/{tag}")
+          if existing is not None:
+              if existing["draft"] or existing["prerelease"]:
+                  raise ValueError(f"{tag} already exists but is not a published stable release")
+              print(f"{tag} is already published; no new release needed.")
+          else:
+              latest = get_release("latest")
+              if latest is not None:
+                  latest_version = latest["tag_name"].removeprefix("v")
+                  if not re.fullmatch(pattern, latest_version):
+                      raise ValueError(f"Cannot compare latest release version: {latest_version!r}")
+                  if tuple(map(int, version.split("."))) <= tuple(map(int, latest_version.split("."))):
+                      raise ValueError(f"{tag} must be newer than {latest['tag_name']}")
+
+              tagged = subprocess.run(
+                  ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"],
+                  capture_output=True, text=True,
+              )
+              if tagged.returncode not in (0, 1):
+                  tagged.check_returncode()
+              head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+              if tagged.returncode == 0 and tagged.stdout.strip() != head:
+                  raise ValueError(f"{tag} already points to a different commit")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write(f"tag={tag}\npublish=true\n")
       - name: Publish GitHub release
+        if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" --verify-tag --generate-notes --title "$RELEASE_TAG"
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: >-
+          gh release create "$RELEASE_TAG"
+          --target "$RELEASE_SHA" --generate-notes --title "$RELEASE_TAG" --latest
