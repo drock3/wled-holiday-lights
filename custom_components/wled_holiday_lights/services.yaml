@@ -1,6 +1,4 @@
 reconcile:
   target:
-    device:
-      integration: wled_holiday_lights
     entity:
       integration: wled_holiday_lights
