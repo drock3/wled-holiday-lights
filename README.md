@@ -4,224 +4,197 @@
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=drock3&repository=wled-holiday-lights&category=integration)
 
-Automatically choose WLED presets for holidays and everyday occasions without
-maintaining a separate automation for every theme. WLED Holiday Lights is a custom
-Home Assistant integration that combines calendars, on/off conditions, and templates
-into one ordered lighting schedule. Define your own themes and sources to fit your
-home.
+**Your WLED lights pick the right look for the day, on their own.**
 
-- Uses your existing Home Assistant WLED light and preset selector.
-- The first enabled source with a matching theme wins.
-- Runs during lighting windows you define, each starting and ending at a clock time or
-  at sunrise/sunset with an offset (sunset until midnight by default).
-- Rotates between a theme's looks daily.
-- Provides brightness, mode, and source controls, plus schedule and output diagnostics.
-- Optionally controls the outlet powering your WLED controller.
-- Supports multiple lighting setups, each with its own light and preset selector.
+Put "Christmas" on a calendar, and at sunset your lights come on with your Christmas
+presets. On Halloween they switch to purple and orange. On a birthday, they celebrate.
+You don't need one automation per holiday.
+
+```mermaid
+flowchart LR
+    A["Calendar event:<br/><b>Christmas</b>"] --> B["WLED Holiday Lights"]
+    B --> C["WLED preset:<br/><b>[Christmas] Candy cane</b>"]
+```
+
+WLED Holiday Lights is a Home Assistant integration that sits on top of your existing
+[WLED](https://www.home-assistant.io/integrations/wled/) setup. It decides **when**
+your lights should be on and **which preset** they should show.
+
+## Quick start
+
+1. **Install** with HACS. Use the badge above, or add
+   `https://github.com/drock3/wled-holiday-lights` as a custom **Integration**
+   repository. Then restart Home Assistant.
+2. **Name your WLED presets** as `[Theme] Look name`:
+
+   ```text
+   [Christmas] Candy cane
+   [Christmas] Warm sparkle
+   [Halloween] Purple and orange
+   ```
+
+3. **Add the integration** under **Settings > Devices & services > Add integration >
+   WLED Holiday Lights**, then pick your WLED light and preset selector.
+4. **Add a calendar source.** Select **Configure** on the new entry, add a
+   **Calendar** source, and create calendar events titled with a theme name, such as
+   `Christmas`.
+
+That's it. From sunset to midnight, the lights show the preset for today's theme.
+
+## How it works
+
+The integration has three parts:
+
+- **Themes** are groups of WLED presets. `[Christmas] Candy cane` is a look in the
+  `Christmas` theme. If a theme has several looks, it uses a different one each day.
+- **Sources** request a theme. A source can be a calendar, an on/off entity, or a
+  template. Sources are checked from top to bottom, and the first one that requests
+  a theme with matching presets wins.
+- **Lighting windows** set when the lights may be on. The default window is sunset
+  to midnight.
+
+```mermaid
+flowchart TD
+    W{"Is a lighting<br/>window open?"} -- No --> OFF["Lights off"]
+    W -- Yes --> S1["Source 1: Birthday calendar"]
+    S1 -- "no theme" --> S2["Source 2: Holiday calendar"]
+    S2 -- "no theme" --> S3["Source 3: ..."]
+    S1 -- "Birthday" --> P["Apply today's<br/>[Birthday] look"]
+    S2 -- "Christmas" --> Q["Apply today's<br/>[Christmas] look"]
+    S3 -- "nothing" --> OFF
+```
+
+If no source requests a usable theme, the lights stay off. No fallback theme is used.
 
 ## Requirements
 
-- Home Assistant **2026.1.0 or newer**.
-- A working [WLED integration](https://www.home-assistant.io/integrations/wled/)
-  exposing a light entity and preset select entity.
-- WLED presets named as described below.
-- Correct Home Assistant location and time zone, so sunrise, sunset and midnight are calculated correctly.
-- [HACS](https://www.hacs.xyz/docs/use/download/download/) for the recommended installation method.
+- Home Assistant **2026.1.0** or newer, with the correct location and time zone set.
+  The integration uses them to calculate sunrise, sunset, and midnight.
+- The [WLED integration](https://www.home-assistant.io/integrations/wled/), with a
+  light entity and a preset select entity.
+- [HACS](https://www.hacs.xyz/docs/use/download/download/) (recommended) for
+  installation and updates.
+- For calendar sources, any Home Assistant calendar that supports
+  `calendar.get_events`.
 
-Calendar sources additionally need a Home Assistant calendar that supports
-`calendar.get_events`. No calendar is required for condition or template sources.
+## Configuration
 
-## Install with HACS
+### Presets and themes
 
-This repository can be installed as a **custom repository**; it does not need to
-be listed in the default HACS catalog.
+- Preset names must use the format `[Theme] Look name`. Presets in any other format
+  are ignored.
+- Theme names are case-sensitive. `Christmas` and `christmas` are different themes.
+- `Auto` and `Off` are reserved and can't be used as theme names.
 
-1. Open **HACS** in Home Assistant.
-2. Open the menu in the top-right corner and select **Custom repositories**.
-3. Enter `https://github.com/drock3/wled-holiday-lights` and select
-   **Integration** as the type.
-4. Add the repository, find **WLED Holiday Lights**, and download it.
-5. **Restart Home Assistant.**
-6. Go to **Settings > Devices & services > Add integration** and search for
-   **WLED Holiday Lights**.
+### Setup
 
-Alternatively, use the **Open in HACS** badge above to open the repository in your
-Home Assistant instance.
-
-### Manual installation
-
-Copy the entire `custom_components/wled_holiday_lights` directory from this repository
-into your Home Assistant configuration directory, keeping this layout:
-
-```text
-<config>/custom_components/wled_holiday_lights/manifest.json
-<config>/custom_components/wled_holiday_lights/__init__.py
-...
-```
-
-Restart Home Assistant, then add **WLED Holiday Lights** through **Devices & services**.
-Setup is UI-only; do not add a `wled_holiday_lights:` section to your configuration YAML.
-
-> [!IMPORTANT]
-> Version **1.0.0** is the first supported release and requires a fresh setup.
-> Alpha configurations and stored state are not migrated. If you used a test
-> version, record your settings and remove its integration entries through
-> **Devices & services** before installing this release. Remove any old
-> `holiday_lighting` custom component directory as well. Restart Home Assistant,
-> add **WLED Holiday Lights**, and recreate your sources. Update dashboards and
-> automations to use the newly created entities.
-
-### Updating
-
-Download updates through HACS, then **restart Home Assistant** to load the new
-version. For a manual installation, replace the integration directory with the
-updated files and restart Home Assistant.
-
-## Configure your lights
-
-### 1. Name your WLED presets
-
-Save presets in WLED using the format **`[Theme] Look name`**, for example:
-
-```text
-[Christmas] Candy cane
-[Christmas] Warm sparkle
-[Halloween] Purple and orange
-[Birthday] Celebration
-```
-
-The theme must match the calendar title, condition theme, or template output,
-including capitalization. Multiple presets for one theme are rotated daily.
-`Auto` and `Off` are reserved and cannot be theme names. Presets without the naming
-format are not used by the schedule.
-
-### 2. Add a lighting setup
-
-During setup, choose:
+Each setup controls one WLED light. If you have several WLED strips, add a separate
+setup for each one.
 
 | Setting | Purpose |
 | --- | --- |
-| Name | Identifies this setup and its device/entities. |
-| WLED light | The native WLED light to control. |
-| WLED preset selector | The native WLED select entity whose options contain your presets. |
-| Outlet switch | Optional switch powering the WLED controller. |
-
-Each light and preset selector can belong to only one lighting setup.
+| Name | Used for the device name and entity IDs. |
+| WLED light | The native WLED light entity. |
+| WLED preset selector | The native WLED preset select entity. |
+| Outlet switch | Optional. Use it if WLED is powered from a smart outlet. |
 
 > [!WARNING]
-> When an outlet is configured, turning the lighting output off also switches off
-> that outlet. Only select an outlet dedicated to the WLED controller.
+> If you set an outlet switch, the integration switches that outlet off whenever the
+> lights should be off. Only use an outlet dedicated to the WLED controller.
 
-### 3. Set lighting windows
+### Sources
 
-Select **Configure** on the integration entry. The lights may run only while a
-lighting window is open; a new setup starts with one window from sunset until
-midnight. Add, edit, or remove windows to fit your schedule. Each end of a window is
-one of:
+To add sources, select **Configure** on the integration entry. You can drag sources
+to change their priority. Each source also has an on/off switch on the device.
 
-| End type | Configuration |
-| --- | --- |
-| Time | A clock time, such as `06:00`. As an end time, `00:00` means midnight at the end of the day. |
-| Sunrise | Sunrise plus an offset from -240 to +240 minutes; negative is before sunrise. |
-| Sunset | Sunset plus an offset from -240 to +240 minutes; negative is before sunset. |
-
-For example, a morning and an evening session:
-
-| Window | Start | End |
+| Type | You provide | Requested theme |
 | --- | --- | --- |
-| Morning | Time `06:00` | Sunrise, offset `15` |
-| Evening | Sunset, offset `-10` | Time `23:30` |
+| Calendar | A calendar entity | The title of an active event. Timed and all-day events both work. If events overlap, the shortest event is checked first. |
+| Condition | An entity and a theme | The theme you entered, while the entity is `on` |
+| Template | A Jinja template | Whatever the template renders |
 
-Windows are worked out each day and stay within that day, so times past midnight are
-cut off at midnight. To run past midnight, add a second window starting at `00:00`;
-the daily look rotation then moves to the next look at midnight. Overlapping windows
-simply combine. On a day when a window's end isn't after its start, or a sun event it
-uses doesn't happen at your location, that window stays closed. For lights at any
-time of day, use a window from `00:00` to `00:00`.
-
-The **In lighting hours** sensor shows today's opening and closing times for each
-window and the next change.
-
-### 4. Add sources in priority order
-
-Add sources on the same **Configure** form and drag them into
-priority order. The first enabled source with a theme that has a matching WLED
-preset wins; an unmatched request does not block lower-priority sources.
-
-| Source | Configuration | Theme request |
-| --- | --- | --- |
-| Calendar | Choose a calendar entity. | The title of an active event. Overlapping events are considered shortest first. |
-| Condition | Choose an entity and enter a theme. | The configured theme while the entity's state is `on`. |
-| Template | Enter a Home Assistant template. | The rendered theme name. |
-
-Use source order to decide which occasions take precedence over your normal
-schedule. Each source also has an enable/disable switch on the integration's
-device.
-
-A template can request a theme conditionally:
+A template that renders an empty value, `none`, `false`, `unknown`, or `unavailable`
+requests nothing:
 
 ```jinja
 {{ 'Party' if is_state('input_boolean.party_mode', 'on') else '' }}
 ```
 
-Empty output, `none`, `false`, `unknown`, and `unavailable` request no theme.
-Calendar events can be timed or all-day; their titles should contain only the
-theme name, such as `Christmas`.
+> [!TIP]
+> To make an occasion override your holidays, put its source above the calendar. For
+> example, add a **Condition** source on `input_boolean.game_day` with the theme
+> `Game day`, and save a WLED preset named `[Game day] Team colors`.
 
-### Example: game-day lighting
+### Lighting windows
 
-Game days are one way to use the same source framework, not a built-in scheduling
-mode. If you want team colors to take priority over a holiday:
+Windows are also edited under **Configure**. Each window has a start and an end. Each
+one is a clock time, or sunrise or sunset with an offset from -240 to +240 minutes.
 
-1. Save a WLED preset named `[Game day] Team colors`.
-2. Add a condition source using an on/off entity you control, such as
-   `input_boolean.game_day`, and set its theme to `Game day`.
-3. Place that source above your holiday calendar.
+| Window | Start | End |
+| --- | --- | --- |
+| Morning | Time `06:00` | Sunrise, `+15` |
+| Evening | Sunset, `-10` | Time `23:30` |
 
-While the entity is `on`, the game-day theme wins during lighting hours. When it
-turns `off`, the calendar can take over again. The same pattern works for birthdays,
-parties, or any other occasion with a matching preset.
+- Overlapping windows combine.
+- An end time of `00:00` means midnight at the end of the day. To keep the lights on
+  all day, use a window from `00:00` to `00:00`.
+- A window can't cross midnight. To run past midnight, add a second window that starts
+  at `00:00`.
+- On a day when a window's end isn't after its start, or when the sun doesn't rise or
+  set at your location, the window stays closed.
 
-## Daily controls
+## Everyday use
 
-| Control | Behavior |
+The integration creates a device for each setup with these controls:
+
+| Control | What it does |
 | --- | --- |
-| Mode: Automatic | Applies the winning theme during lighting hours; otherwise keeps the lights off. |
-| Mode: Manual | Overrides automatic output for direct control or editing while keeping the schedule and diagnostics current; returns to Automatic at local midnight. |
-| Mode: Disabled | Keeps the lights off until you change the mode. |
-| Brightness | Target brightness, from 1 to 100 percent. |
-| Reapply to WLED | Re-evaluates and resends power, preset, and brightness commands; unavailable in Manual mode. |
+| **Mode** | **Automatic** follows the schedule. **Manual** lets you control WLED directly and switches back to Automatic at midnight. **Disabled** keeps the lights off. |
+| **Brightness** | Sets the target brightness, from 1 to 100%. |
+| **Reapply to WLED** | Checks the schedule again and resends power, preset, and brightness. |
+| Source switches | Turns individual sources on or off. |
 
-In Automatic mode, direct changes to WLED can be corrected at the next schedule
-check. Switch to Manual before editing presets or controlling WLED yourself.
-Entering Manual powers on the configured outlet so WLED is reachable, but does not
-change the WLED light, preset, or brightness. Schedule evaluation continues,
-including source changes and calendar refreshes, so the scheduled theme, preset,
-winning source, and diagnostics show what Automatic mode would select. Lighting
-hours still apply to that plan; **Ready to light** stays off while Manual is selected.
-If WLED is offline, planning uses the last known preset list without powering it on.
+In Automatic mode, changes you make directly in WLED can be undone at the next
+schedule check. **Switch to Manual before you edit presets in WLED.** In Manual mode,
+the outlet is switched on so WLED stays reachable. The schedule sensors keep updating,
+so you can still see what Automatic mode would choose.
 
-For automations, the `wled_holiday_lights.reconcile` action re-checks the schedule and
-corrects drift. Select the setup's device or entity as a target when more than one
-setup exists. This action is not available in Manual mode.
+To trigger a check from an automation, use the `wled_holiday_lights.reconcile` action.
+If you have more than one setup, target the setup's device. The action isn't available
+in Manual mode.
 
 ## Troubleshooting
 
-- **Integration not found after download:** restart Home Assistant and confirm the
-  files are directly inside `<config>/custom_components/wled_holiday_lights`, not an
-  extra nested directory.
-- **Nothing turns on:** check the mode, lighting windows (see the **In lighting
-  hours** attributes), enabled sources, and exact
-  theme spelling. There is no fallback theme when nothing matches.
-- **Missing presets:** confirm the WLED preset selector exposes the expected
-  names. With a switched outlet, presets may not load until lighting hours begin.
-- **Unexpected theme:** inspect **Winning source**, **Schedule status**, and
-  **Scheduled preset**, then check source order and overlapping calendar events.
-- **Output failure:** inspect **Last output result**, **Output result detail**,
-  diagnostic sensors, and **Settings > System > Repairs**. Confirm the WLED
-  entities and optional outlet are available.
+The device's sensors show what the integration is doing. Check **Schedule status**,
+**Winning source**, **Scheduled theme**, **Scheduled preset**, **In lighting hours**,
+and **Last output result**. Problems are also reported under **Settings > System >
+Repairs**.
+
+| Symptom | Check |
+| --- | --- |
+| Integration not found after install | Restart Home Assistant. The files must be directly in `<config>/custom_components/wled_holiday_lights/`. |
+| Lights never turn on | Check the **Mode**, whether a window is open (**In lighting hours** attributes), whether sources are enabled, and the exact spelling of theme names. |
+| Wrong theme | Check the source order and any overlapping calendar events. |
+| Presets missing | Check that the WLED preset selector lists them. If WLED is behind an outlet, the presets may not load until the first lighting window opens. |
+| WLED errors | Check **Output result detail** and **Repairs**, and confirm that the WLED entities and outlet are available. |
 
 Report reproducible problems in the
-[issue tracker](https://github.com/drock3/wled-holiday-lights/issues), including
-your Home Assistant and integration versions and relevant logs. Remove personal
-information before posting.
+[issue tracker](https://github.com/drock3/wled-holiday-lights/issues). Include your
+Home Assistant and integration versions and relevant logs, and remove any personal
+information first.
+
+## Installation details
+
+**Manual install:** copy `custom_components/wled_holiday_lights` into your Home
+Assistant `config/custom_components/` folder, then restart. Setup is UI-only, so don't
+add a `wled_holiday_lights:` section to YAML.
+
+**Updating:** download the update in HACS, or replace the folder for a manual install,
+then restart Home Assistant.
+
+> [!IMPORTANT]
+> **Upgrading from a pre-1.0 test version?** Version 1.0.0 doesn't migrate alpha
+> configurations. Before you install it, note your settings, remove the old
+> integration entries, and delete any old `holiday_lighting` folder. Then restart, set
+> up the integration again, and update dashboards and automations to use the new
+> entities.
