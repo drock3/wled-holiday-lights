@@ -124,34 +124,30 @@ def _unique_casefold(values: list[str]) -> list[str]:
     seen: set[str] = set()
     result = []
     for value in values:
-        if value.lower() not in seen:
-            seen.add(value.lower())
+        if value.casefold() not in seen:
+            seen.add(value.casefold())
             result.append(value)
     return result
 
 
 def parse_library(options: list[str] | None) -> dict[str, Any]:
-    """Discover looks from preset names formatted as ``[Theme] Look name``."""
+    """Discover looks from ``[Theme] Look name`` presets, grouping themes ignoring case."""
     looks: list[dict[str, str]] = []
     themes: list[str] = []
     warnings: list[str] = []
     errors: list[str] = []
     names: list[str] = []
-    cases: dict[str, str] = {}
     for option in options or []:
         match = _PRESET.match(option)
         if match and match[1].strip() and match[2].strip():
             theme = match[1].strip()
-            if theme.lower() in RESERVED:
+            if theme.casefold() in RESERVED:
                 warnings.append(
                     f"WLED preset '{option}' ignored: Auto and Off can't be theme names. Rename it."
                 )
                 continue
             if option in names:
                 errors.append(f"Duplicate preset name: {option}")
-            if theme.lower() in cases and cases[theme.lower()] != theme:
-                errors.append(f"Theme capitalization conflict: {theme}")
-            cases[theme.lower()] = theme
             names.append(option)
             looks.append({"theme": theme, "name": match[2].strip(), "option": option})
             themes.append(theme)
@@ -159,7 +155,7 @@ def parse_library(options: list[str] | None) -> dict[str, Any]:
             warnings.append(f"WLED preset '{option}' ignored: rename it to '[Theme] Look name'.")
     return {
         "looks": looks,
-        "themes": sorted(_unique_casefold(themes), key=str.lower),
+        "themes": sorted(_unique_casefold(themes), key=str.casefold),
         "warnings": warnings,
         "errors": errors,
     }
@@ -238,7 +234,7 @@ def calendar_requests(
 
 def _pick_look(theme: str, library: dict[str, Any], now: datetime) -> str:
     looks = sorted(
-        (item for item in library["looks"] if item["theme"] == theme),
+        (item for item in library["looks"] if item["theme"].casefold() == theme.casefold()),
         key=lambda item: (item["name"], item["option"]),
     )
     return looks[now.date().toordinal() % len(looks)]["option"] if looks else ""
@@ -258,7 +254,7 @@ def build_plan(
 
     The first source in the list beats everything below it; within a source its
     requests keep the source's own order. The first request whose theme has a
-    ``[Theme] Look name`` preset wins. A source result looks like::
+    ``[Theme] Look name`` preset wins, ignoring theme capitalization. A source result looks like::
 
         {"id": str, "name": str, "type": str, "enabled": bool, "available": bool,
          "requests": [{"theme": str, "detail": str, "start": str | None, "end": str | None}],
@@ -341,7 +337,7 @@ def build_plan(
                 request["status"] = "presets not loaded"
                 continue
             request["status"] = "no preset"
-            if request["theme"].lower() in RESERVED:
+            if request["theme"].casefold() in RESERVED:
                 warnings.append(
                     f"{request['source']}: theme '{request['theme']}' is reserved and can't have "
                     "WLED presets. Use Mode Disabled or the source's Enabled switch instead."

@@ -83,7 +83,8 @@ If no source requests a usable theme, the lights stay off. No fallback theme is 
 
 - Preset names must use the format `[Theme] Look name`. Presets in any other format
   are ignored.
-- Theme names are case-sensitive. `Christmas` and `christmas` are different themes.
+- Theme names are case-insensitive. `Christmas` and `christmas` are the same theme,
+  and presets using either capitalization share the daily look rotation.
 - `Auto` and `Off` are reserved and can't be used as theme names.
 
 ### Setup
@@ -109,7 +110,7 @@ to change their priority. Each source also has an on/off switch on the device.
 
 | Type | You provide | Requested theme |
 | --- | --- | --- |
-| Calendar | A calendar entity | The title of an active event. Timed and all-day events both work. If events overlap, the shortest event is checked first. |
+| Calendar | A calendar entity | The title of an active event. Timed and all-day events both work. If events overlap, the shortest event is takes priority. |
 | Condition | An entity and a theme | The theme you entered, while the entity is `on` |
 | Template | A Jinja template | Whatever the template renders |
 
@@ -191,10 +192,3 @@ add a `wled_holiday_lights:` section to YAML.
 
 **Updating:** download the update in HACS, or replace the folder for a manual install,
 then restart Home Assistant.
-
-> [!IMPORTANT]
-> **Upgrading from a pre-1.0 test version?** Version 1.0.0 doesn't migrate alpha
-> configurations. Before you install it, note your settings, remove the old
-> integration entries, and delete any old `holiday_lighting` folder. Then restart, set
-> up the integration again, and update dashboards and automations to use the new
-> entities.
