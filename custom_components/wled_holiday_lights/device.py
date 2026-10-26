@@ -41,11 +41,35 @@ class LightingDevice:
     ) -> None:
         self.hass = hass
         self.controller = controller
-        self.light = light
+        self.light = self._resolve_light(light)
         self.preset = preset
         self.power = power
         self._transitions = 0
         self._reload_task: asyncio.Task[None] | None = None
+
+    def _resolve_light(self, light: str) -> str:
+        """Use the native master light when a WLED segment was selected."""
+        registry = er.async_get(self.hass)
+        selected = registry.async_get(light)
+        if selected is None or selected.platform != "wled":
+            return light
+        # Native WLED uses the MAC for the master and MAC_segment for segments.
+        master_id, separator, segment = selected.unique_id.rpartition("_")
+        if not separator or not segment.isdecimal():
+            return light
+        entity_id = registry.async_get_entity_id("light", "wled", master_id)
+        master = registry.async_get(entity_id) if entity_id else None
+        if (
+            master is not None
+            and master.platform == "wled"
+            and master.config_entry_id == selected.config_entry_id
+            and master.device_id == selected.device_id
+        ):
+            _LOGGER.info(
+                "Using WLED master light %s instead of segment %s", master.entity_id, light
+            )
+            return master.entity_id
+        return light
 
     @property
     def transitioning(self) -> bool:
@@ -259,6 +283,7 @@ class LightingDevice:
         if not await self.async_power_on(force=force):
             return
 
+        was_on = was_on and self.state(self.light) == STATE_ON
         options = self.preset_options or []
         if look not in options:
             if await self.async_power_off("Intended preset is missing or unavailable."):
@@ -293,9 +318,8 @@ class LightingDevice:
                     ctl.output_error("Preset selection failed; power-off requested.")
                 return
 
-        # The brightness control is authoritative: undo presets saved with brightness and
-        # direct changes on WLED.
-        if self.attr(self.light, "brightness") != brightness:
+        # Presets can save power off even with the target brightness.
+        if self.state(self.light) != STATE_ON or self.attr(self.light, "brightness") != brightness:
             await self._call(
                 "light", "turn_on", {"entity_id": self.light, "brightness": brightness}
             )

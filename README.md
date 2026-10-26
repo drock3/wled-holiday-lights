@@ -95,13 +95,18 @@ setup for each one.
 | Setting | Purpose |
 | --- | --- |
 | Name | Used for the device name and entity IDs. |
-| WLED light | The native WLED light entity. |
+| WLED light | The native WLED main light entity. If a segment is selected and a master light exists on that controller, the integration uses the master for power and brightness. |
 | WLED preset selector | The native WLED preset select entity. |
 | Outlet switch | Optional. Use it if WLED is powered from a smart outlet. |
 
 > [!WARNING]
 > If you set an outlet switch, the integration switches that outlet off whenever the
 > lights should be off. Only use an outlet dedicated to the WLED controller.
+
+Controller power and LED output power are separate. In Automatic mode, the integration
+turns on WLED's master LED output and enforces the target brightness after applying a
+preset, including presets saved with output power off. In Manual mode, only the optional
+outlet is switched on; WLED's LED power and presets are left alone.
 
 ### Sources
 

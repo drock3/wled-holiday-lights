@@ -136,7 +136,7 @@ PR intended for immediate distribution includes one.
 
 **Bootstrap:** if no release exists for the current manifest version, the next
 successful push to `main` publishes it, including the PR that enables this
-workflow. With the current manifest, that first release is `v1.0.0`.
+workflow. The release tag is `v` followed by the manifest version.
 
 Release jobs are serialized. An already-published stable version is a no-op,
 so rerunning validation does not duplicate it. A new version must be newer than
