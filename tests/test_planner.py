@@ -73,6 +73,46 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual("Holidays", plan["source"])
         self.assertEqual("Disabled", plan["sources"][0]["reason"])
 
+    def test_theme_requests_match_without_case_sensitivity(self):
+        for theme in ("Christmas", "christmas", "CHRISTMAS", "cHrIsTmAs"):
+            with self.subTest(theme=theme):
+                plan = self.plan([self.source("Holidays", [theme])])
+                self.assertTrue(plan["allowed"])
+                self.assertEqual(theme, plan["theme"])
+                self.assertEqual(theme, plan["sources"][0]["theme"])
+                self.assertEqual("won", plan["requests"][0]["status"])
+                self.assertIn(plan["look"], ["[Christmas] Sparkle", "[Christmas] Warm"])
+                self.assertEqual([], plan["warnings"])
+                self.assertEqual([], plan["errors"])
+
+    def test_mixed_case_themes_share_daily_rotation(self):
+        options = ["[Christmas] Sparkle", "[christmas] Warm", "[CHRISTMAS] Snow"]
+        library = planner.parse_library(options)
+        self.assertEqual(["Christmas"], library["themes"])
+        self.assertEqual([], library["errors"])
+        selected = []
+        for offset in range(len(options)):
+            now = self.now + timedelta(days=offset)
+            plan = self.plan([self.source("Holidays", ["cHrIsTmAs"])], library=library, now=now)
+            self.assertTrue(plan["allowed"])
+            selected.append(plan["look"])
+            reordered = planner.parse_library(list(reversed(options)))
+            self.assertEqual(
+                plan["look"],
+                self.plan([self.source("Holidays", ["CHRISTMAS"])], library=reordered, now=now)[
+                    "look"
+                ],
+            )
+        self.assertCountEqual(options, selected)
+
+    def test_theme_matching_uses_unicode_case_folding(self):
+        library = planner.parse_library(["[Stra\u00dfe] Warm", "[STRASSE] Cool"])
+        self.assertEqual(["Stra\u00dfe"], library["themes"])
+        self.assertEqual([], library["errors"])
+        plan = self.plan([self.source("Holidays", ["strasse"])], library=library)
+        self.assertTrue(plan["allowed"])
+        self.assertEqual([], plan["warnings"])
+
     def test_activation_gates_keep_output_off(self):
         for gate in ("enabled", "hours", "power_ok"):
             with self.subTest(gate=gate):
@@ -226,16 +266,27 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(2, len(warnings))
         self.assertIsNone(planner.next_boundary(events, self.now))
 
-    def test_reserved_themes_and_capitalization_conflicts_are_reported(self):
+    def test_reserved_themes_are_ignored_regardless_of_case(self):
         library = planner.parse_library(
             [
-                "[Auto] Reserved",
-                "[Off] Reserved",
+                "[aUtO] Reserved",
+                "[oFF] Reserved",
                 "[Team] Colors",
                 "[team] Other",
                 "[Bad]",
             ]
         )
         self.assertEqual(3, len(library["warnings"]))
-        self.assertEqual(["Theme capitalization conflict: team"], library["errors"])
-        self.assertFalse(self.plan([self.source("Games", ["Team"])], library=library)["allowed"])
+        self.assertEqual([], library["errors"])
+        self.assertEqual(["Team"], library["themes"])
+        self.assertTrue(self.plan([self.source("Games", ["TEAM"])], library=library)["allowed"])
+        for theme in ("AUTO", "off"):
+            with self.subTest(theme=theme):
+                plan = self.plan([self.source("Reserved", [theme])], library=library)
+                self.assertFalse(plan["allowed"])
+                self.assertIn("is reserved", plan["warnings"][-1])
+
+    def test_duplicate_preset_names_are_still_reported(self):
+        library = planner.parse_library(["[Team] Colors", "[Team] Colors"])
+        self.assertEqual(["Duplicate preset name: [Team] Colors"], library["errors"])
+        self.assertFalse(self.plan([self.source("Games", ["team"])], library=library)["allowed"])
