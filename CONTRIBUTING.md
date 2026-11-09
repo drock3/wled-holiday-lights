@@ -27,10 +27,17 @@ setup, and unload handling, with network sockets disabled and no WLED hardware.
 Install their dependencies in a separate Linux environment with a Python version
 supported by the target Home Assistant release:
 
-```shell
-python -m pip install "homeassistant==2026.1.0" "pytest-homeassistant-custom-component==0.13.305"
-python -m pytest tests/ha -v
-```
+The minimum supported Home Assistant release is **2026.11.0**. Its test-plugin
+upgrade is currently blocked: the latest published
+`pytest-homeassistant-custom-component` release, `0.13.375`, requires Home Assistant
+`2026.10.4`. The workflow retains its previous plugin pin until a compatible
+release is published, so the required minimum-HA dependency installation currently
+fails and blocks publishing. Do not bypass dependency resolution to force a test
+run with an incompatible plugin.
+
+Once a matching plugin is available, update the minimum target's pin in the
+workflow, install it alongside `homeassistant==2026.11.0`, and run
+`python -m pytest tests/ha -v`.
 
 For the latest stable target, install `-r requirements-test.txt` alongside the
 current stable Home Assistant version instead of the historical test-plugin pin.

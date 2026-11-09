@@ -144,6 +144,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install minimum Home Assistant test dependencies
+        # Blocked: replace the old plugin pin once a release supports HA 2026.11.0.
         if: matrix.name == 'minimum'
         env:
           HA_VERSION: ${{ matrix.homeassistant }}

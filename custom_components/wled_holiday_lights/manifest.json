@@ -2,6 +2,7 @@
   "domain": "wled_holiday_lights",
   "name": "WLED Holiday Lights",
   "after_dependencies": ["calendar", "sun"],
+  "categories": ["lighting"],
   "codeowners": ["@drock3"],
   "config_flow": true,
   "dependencies": [],

@@ -35,6 +35,7 @@ class ConfigurationTests(unittest.IsolatedAsyncioTestCase):
     def test_release_uses_semver_and_version_one_config_schema_without_migration_hook(self):
         manifest = json.loads((COMPONENT / "manifest.json").read_text())
         self.assertRegex(manifest["version"], r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+        self.assertEqual(["lighting"], manifest["categories"])
         self.assertEqual(1, self.flow.HolidayLightingConfigFlow.VERSION)
         self.assertFalse(hasattr(self.modules.setup, "async_migrate_entry"))
 
@@ -317,6 +318,25 @@ class ManualOverrideTests(unittest.IsolatedAsyncioTestCase):
         )
         self.calendar.next_change = MagicMock(return_value=self.now + timedelta(hours=1))
 
+    async def test_configuration_repair_is_linked_to_config_entry_and_clears_when_resolved(self):
+        ctl = self.controller
+        registry = self.modules.controller.ir
+        with patch.object(
+            self.modules.controller.planner, "build_plan", return_value={"errors": ["Bad setup"]}
+        ):
+            await ctl._reconcile()
+
+        self.assertEqual(
+            ctl.entry.entry_id, registry.async_create_issue.call_args.kwargs["config_entry_id"]
+        )
+        self.assertEqual(ctl.issue_configuration, registry.async_create_issue.call_args.args[2])
+
+        await ctl._reconcile()
+
+        registry.async_delete_issue.assert_any_call(
+            ctl.hass, self.modules.const.DOMAIN, ctl.issue_configuration
+        )
+
     async def test_restored_manual_mode_populates_schedule_inside_and_outside_hours(self):
         ctl = self.controller
         ctl.mode = "Manual"
@@ -520,6 +540,42 @@ class PersistenceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.controller = self.modules.controller.LightingController(MagicMock(), self.entry)
         self.controller._store = SimpleNamespace(async_load=AsyncMock(return_value=None))
+
+    def test_output_repair_is_linked_to_config_entry_and_clears_when_resolved(self):
+        ctl = self.controller
+        ctl._save = MagicMock()
+        ctl._updated = MagicMock()
+        ctl._schedule_retry = MagicMock()
+        registry = self.modules.controller.ir
+
+        ctl.output_error("WLED unavailable")
+
+        self.assertEqual(
+            self.entry.entry_id, registry.async_create_issue.call_args.kwargs["config_entry_id"]
+        )
+        self.assertEqual(ctl.issue_output, registry.async_create_issue.call_args.args[2])
+
+        ctl.set_output("off", "Recovered")
+
+        registry.async_delete_issue.assert_called_once_with(
+            ctl.hass, self.modules.const.DOMAIN, ctl.issue_output
+        )
+
+    async def test_unload_preserves_repairs_and_returns_platform_unload_result(self):
+        ctl = self.controller
+        ctl.async_shutdown = AsyncMock()
+        self.entry.runtime_data = ctl
+        ctl.hass.config_entries.async_unload_platforms = AsyncMock()
+        for unloaded in (True, False):
+            with self.subTest(unloaded=unloaded):
+                ctl.hass.config_entries.async_unload_platforms.return_value = unloaded
+
+                result = await self.modules.setup.async_unload_entry(ctl.hass, self.entry)
+
+                self.assertIs(unloaded, result)
+
+        self.assertEqual(2, ctl.async_shutdown.await_count)
+        self.modules.controller.ir.async_delete_issue.assert_not_called()
 
     async def test_fresh_install_uses_defaults(self):
         await self.controller.async_load()
