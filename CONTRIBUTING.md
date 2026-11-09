@@ -59,6 +59,12 @@ pushes to `main`, version tags (`v*`), weekly, and on demand. It checks:
   target does not install that file, keeping its historical plugin independent of
   development dependency updates.
 
+Latest-stable dependency installation and compatibility tests are advisory:
+failures produce a warning and job summary without blocking merges or releases.
+Tests are skipped if those dependencies cannot be installed; this does not
+establish compatibility with that release. Minimum-version compatibility tests,
+runtime resolution/setup, and all other validation remain mandatory.
+
 When raising the minimum supported version, update [hacs.json](hacs.json), the
 README requirements, and the minimum target's matching test-plugin pin in the
 workflow.
@@ -85,6 +91,10 @@ up-to-date branches, and require these status checks after their first run:
 - `Resolve Home Assistant versions`
 - `Home Assistant (minimum)`
 - `Home Assistant (latest)`
+
+The latest-HA check completes successfully when its advisory dependency
+installation or tests fail, with warnings in the run. Keeping its status required
+ensures the job runs without making these advisory failures merge blockers.
 
 Do not require `Publish release`: it intentionally skips pull-request runs. Branch
 protection is a GitHub repository setting, not something workflow YAML enables.
@@ -121,7 +131,7 @@ organization policies must permit that token to create tags and releases.
    for breaking changes. Include any migration guidance in the PR description.
 2. Enable auto-merge on the PR, then review and approve it. GitHub merges it once
    the required checks and approvals pass. Manual merging works too.
-3. Validation runs on the merged `main` commit. Only after all checks pass does
+3. Validation runs on the merged `main` commit. Only after all mandatory checks pass does
    the workflow create the matching tag and publish a stable GitHub release
    with generated notes. No manual tag push or second release PR is required.
 4. HACS discovers the release during its normal refresh. Users download the
@@ -145,7 +155,8 @@ being released. Draft/prerelease collisions and API failures fail explicitly.
 If publication fails, resolve the error and rerun the failed job; do not move a
 published tag or reuse a published version.
 
-Manual `v*` tag pushes remain supported and run all checks before publishing;
+Manual `v*` tag pushes remain supported and run all checks before publishing
+(latest-HA dependency installation and tests remain advisory);
 the tag must match the manifest version. Automatically created tags use
 `GITHUB_TOKEN` and do not start another tag-triggered workflow run; the merged
 commit has already passed validation in the publishing run.
