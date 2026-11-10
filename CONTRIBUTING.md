@@ -25,19 +25,22 @@ The regression tests use stubbed Home Assistant interfaces. The separate
 [Home Assistant tests](tests/ha) use real flows, registries, services, platform
 setup, and unload handling, with network sockets disabled and no WLED hardware.
 Install their dependencies in a separate Linux environment with a Python version
-supported by the target Home Assistant release:
+supported by the target Home Assistant release. For the minimum supported version:
 
 ```shell
-python -m pip install "homeassistant==2026.1.0" "pytest-homeassistant-custom-component==0.13.305"
+python -m pip install -r requirements-test.txt "homeassistant==2026.11.0" "pytest-homeassistant==2026.11.0"
 python -m pytest tests/ha -v
 ```
 
-For the latest stable target, install `-r requirements-test.txt` alongside the
-current stable Home Assistant version instead of the historical test-plugin pin.
-Do not combine that requirements file with the minimum target's plugin pin:
-dependency updates can raise its lower bound above the historical version.
-CI resolves the stable version automatically and constrains Home Assistant so a
-newer test plugin cannot inadvertently select a beta.
+Use the official `pytest-homeassistant` package, with the same version as Home
+Assistant. It replaces `pytest-homeassistant-custom-component`; do not install
+both plugins in the same environment. The official plugin enables custom
+integrations by default. Pytest disables the standalone respx plugin so Home
+Assistant can initialize its httpx alias before HTTP mocks are imported.
+
+For the latest stable target, replace both version pins with the current stable
+Home Assistant version. CI resolves that version automatically and pins both
+packages so dependency resolution cannot inadvertently select a beta.
 
 Run `actionlint` locally if installed; CI also validates workflows. Automated tests
 do not replace a smoke test in a running Home Assistant instance with real WLED
@@ -53,11 +56,9 @@ pushes to `main`, version tags (`v*`), weekly, and on demand. It checks:
 - Python syntax and dependency-free regression tests.
 - Real Home Assistant compatibility against the minimum version declared in
   [hacs.json](hacs.json) and the latest stable release from PyPI, using the Python
-  runtime required by each release. The minimum target uses the matching
-  historical test plugin; the latest target resolves a compatible plugin
-  automatically from [requirements-test.txt](requirements-test.txt). The minimum
-  target does not install that file, keeping its historical plugin independent of
-  development dependency updates.
+  runtime required by each release. Both targets install
+  [requirements-test.txt](requirements-test.txt) and pin the official
+  `pytest-homeassistant` package to the Home Assistant version being tested.
 
 Latest-stable dependency installation and compatibility tests are advisory:
 failures produce a warning and job summary without blocking merges or releases.
@@ -66,8 +67,9 @@ establish compatibility with that release. Minimum-version compatibility tests,
 runtime resolution/setup, and all other validation remain mandatory.
 
 When raising the minimum supported version, update [hacs.json](hacs.json), the
-README requirements, and the minimum target's matching test-plugin pin in the
-workflow.
+README requirements, and the minimum test-plugin version in
+[requirements-test.txt](requirements-test.txt). The workflow derives both package
+pins from the target Home Assistant version.
 
 Jobs have timeouts and read-only permissions, except the release job on `main`
 and version-tag pushes.

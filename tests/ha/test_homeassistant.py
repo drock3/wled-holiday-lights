@@ -1,15 +1,15 @@
 """Compatibility tests using real Home Assistant flows, registries and services."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er, issue_registry as ir
 
 from custom_components.wled_holiday_lights.const import DOMAIN, MODE_MANUAL
 from custom_components.wled_holiday_lights.controller import LightingController
@@ -200,6 +200,52 @@ async def test_reconcile_service_targets_setup_and_rejects_manual(hass: HomeAssi
     assert await hass.config_entries.async_unload(entry.entry_id)
     with pytest.raises(ServiceValidationError, match="not set up"):
         await hass.services.async_call(DOMAIN, "reconcile", blocking=True)
+
+
+@pytest.mark.parametrize("kind", ["configuration", "output"])
+async def test_repairs_survive_reload_and_are_deleted_on_removal(
+    hass: HomeAssistant, kind: str
+) -> None:
+    entry = config_entry()
+    registry = ir.async_get(hass)
+    with patch.object(LightingController, "async_start"):
+        await setup_entry(hass, entry)
+        controller = entry.runtime_data
+        issue_id = getattr(controller, f"issue_{kind}")
+
+        async def raise_issue() -> None:
+            if kind == "output":
+                controller.output_error("WLED unavailable")
+                return
+            with (
+                patch(
+                    "custom_components.wled_holiday_lights.controller.planner.build_plan",
+                    return_value={"errors": ["Bad setup"]},
+                ),
+                patch.object(controller.device, "async_apply", new_callable=AsyncMock),
+                patch.object(controller.device, "async_power_off", new_callable=AsyncMock),
+            ):
+                await controller._reconcile()
+
+        await raise_issue()
+        issue = registry.async_get_issue(DOMAIN, issue_id)
+        assert issue is not None
+        assert issue.config_entry_id == entry.entry_id
+        ignored = registry.async_ignore(DOMAIN, issue_id, True)
+
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        controller = entry.runtime_data
+        await raise_issue()
+
+        issue = registry.async_get_issue(DOMAIN, issue_id)
+        assert issue is not None
+        assert issue.dismissed_version == ignored.dismissed_version
+        assert issue.created == ignored.created
+
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
 
 
 async def test_reconcile_requires_target_for_multiple_setups(hass: HomeAssistant) -> None:

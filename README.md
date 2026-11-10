@@ -68,7 +68,7 @@ If no source requests a usable theme, the lights stay off. No fallback theme is 
 
 ## Requirements
 
-- Home Assistant **2026.1.0** or newer, with the correct location and time zone set.
+- Home Assistant **2026.11.0** or newer, with the correct location and time zone set.
   The integration uses them to calculate sunrise, sunset, and midnight.
 - The [WLED integration](https://www.home-assistant.io/integrations/wled/), with a
   light entity and a preset select entity.

@@ -9,7 +9,6 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import (
     config_validation as cv,
     entity_registry as er,
-    issue_registry as ir,
 )
 from homeassistant.helpers.service import async_extract_config_entry_ids
 from homeassistant.helpers.storage import Store
@@ -102,10 +101,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: HolidayLightingConfigEn
     # Flush state first so a reload (or removal) sees the latest mode, brightness and switches.
     controller = entry.runtime_data
     await controller.async_shutdown()
-    if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        for issue in (controller.issue_configuration, controller.issue_output):
-            ir.async_delete_issue(hass, DOMAIN, issue)
-    return unloaded
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
